@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { ScraperPage } from './pages/ScraperPage';
+import { ScraperPage } from './pages/ScraperPage/ScraperPage';
 
 const App: React.FC = () => {
   return (

@@ -30,3 +30,10 @@ export const clearSessionId = (): void => {
   sessionStorage.removeItem(SESSION_KEY);
 };
 
+
+
+
+
+
+
+
