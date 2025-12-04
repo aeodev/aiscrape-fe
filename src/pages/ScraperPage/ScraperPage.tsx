@@ -1,265 +1,144 @@
-/**
- * Scraper Page Component
- * Pure chat-first interface for AI scraping
- */
-
-import React, { useState, useEffect, useRef } from 'react';
-import { useScraperStore } from '../../stores/scraper.store';
-import { useSocket } from '../../hooks/useSocket';
-import { scraperAPI } from '../../utils/api';
-import { getOrCreateSessionId } from '../../utils/session';
-import { ScraperType, IScrapeJob } from '../../types/scraper';
-import {
-  Header,
-  ChatSidebar,
-  ChatMessages,
-  ProgressBar,
-  ChatInput,
-  type Message,
-} from './components';
+import React, { useState, useEffect, useRef } from 'react'
+import { useScraperJobs, useCurrentJob, useScrapeAndAnswer, useChatWithJob } from '@/hooks/scraper.hooks'
+import { useSocket } from '@/composables/useSocket'
+import { useScraperStore } from '@/stores/scraper.store'
+import type { ScraperType, IScrapeJob } from '@/types/scraper'
+import { ScraperType as ScraperTypeEnum } from '@/types/scraper'
+import { Header, ChatSidebar, ChatMessages, ProgressBar, ChatInput, type Message } from './components'
 
 export const ScraperPage: React.FC = () => {
-  const {
-    jobs,
-    currentJob,
-    jobProgress,
-    setJobs,
-    addJob,
-    setCurrentJob,
-    updateJobProgress,
-    setError,
-  } = useScraperStore();
+  useSocket()
 
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [scraperType, setScraperType] = useState<ScraperType>(ScraperType.AUTO);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [useProxy, setUseProxy] = useState(false);
-  const [blockResources, setBlockResources] = useState(true);
-  const [includeScreenshots, setIncludeScreenshots] = useState(true);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { data: jobs } = useScraperJobs()
+  const { currentJob, jobProgress, jobActions, setCurrentJob, clearActions } = useCurrentJob()
+  const { scrapeAndAnswer, loading: isScraping } = useScrapeAndAnswer()
+  const { chatWithJob, loading: isChatting } = useChatWithJob()
+  const storeError = useScraperStore((state) => state.errors.job)
 
-  // Auto-scroll to bottom
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState('')
+  const [scraperType, setScraperType] = useState<ScraperType>(ScraperTypeEnum.AUTO)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [useProxy, setUseProxy] = useState(false)
+  const [blockResources, setBlockResources] = useState(true)
+  const [includeScreenshots, setIncludeScreenshots] = useState(true)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const isProcessing = isScraping || isChatting
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Initialize session ID
-  useEffect(() => {
-    getOrCreateSessionId();
-  }, []);
-
-  // Socket.IO integration
-  const socketHandlers = React.useMemo(() => ({
-    onProgress: (event: any) => {
-      updateJobProgress(event);
-    },
-    onComplete: (event: any) => {
-      // Refresh job data
-      if (event.jobId) {
-        scraperAPI.getJob(event.jobId).then((response) => {
-          if (response.success && response.job) {
-            useScraperStore.getState().updateJob(event.jobId, response.job);
-          }
-        }).catch((error) => {
-          console.error('Failed to fetch job on complete:', error);
-        });
-      }
-    },
-    onError: (event: any) => {
-      setError(event.error);
-      // Add error message to chat
-      setMessages(prev => [...prev, {
+    if (storeError) {
+      const errorMessage: Message = {
         role: 'system',
-        content: `Error: ${event.error}`,
+        content: `Error: ${typeof storeError.message === 'string' ? storeError.message : storeError.message.join(', ')}`,
         timestamp: new Date().toISOString(),
-      }]);
-    },
-  }), [updateJobProgress, setError]);
-
-  const { subscribeToSession } = useSocket(socketHandlers);
-
-  // Subscribe to session on mount
-  useEffect(() => {
-    const sessionId = getOrCreateSessionId();
-    subscribeToSession(sessionId);
-  }, [subscribeToSession]);
-
-  // Load jobs on mount
-  useEffect(() => {
-    loadJobs();
-  }, []);
-
-  const loadJobs = async () => {
-    try {
-      const sessionId = getOrCreateSessionId();
-      const response = await scraperAPI.getJobs({ sessionId });
-
-      if (response.success && response.jobs) {
-        setJobs(response.jobs);
       }
-    } catch (error) {
-      console.error('Failed to load jobs:', error);
+      setMessages((prev) => {
+        const lastMessage = prev[prev.length - 1]
+        if (lastMessage?.role === 'system' && lastMessage.content === errorMessage.content) return prev
+        return [...prev, errorMessage]
+      })
     }
-  };
+  }, [storeError])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!input.trim() || isProcessing) return;
+    e.preventDefault()
+    if (!input.trim() || isProcessing) return
 
     const userMessage: Message = {
       role: 'user',
       content: input.trim(),
       timestamp: new Date().toISOString(),
-    };
+    }
 
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsProcessing(true);
+    setMessages((prev) => [...prev, userMessage])
+    const messageContent = input.trim()
+    setInput('')
+
+    if (currentJob) clearActions()
 
     try {
-      // If there's a current job, use chat endpoint
       if (currentJob) {
-        const result = await scraperAPI.chatWithJob(currentJob._id, userMessage.content);
-
-        if (result.success) {
+        const result = await chatWithJob(currentJob._id, messageContent)
+        if (result) {
           const aiMessage: Message = {
             role: 'assistant',
             content: result.response,
             timestamp: new Date().toISOString(),
             jobId: currentJob._id,
-          };
-          setMessages(prev => [...prev, aiMessage]);
-
-          // Update job in store with new chat history
-          if (currentJob._id) {
-            try {
-              const freshJobResponse = await scraperAPI.getJob(currentJob._id);
-              if (freshJobResponse.success && freshJobResponse.job) {
-                useScraperStore.getState().updateJob(currentJob._id, freshJobResponse.job);
-              }
-            } catch {
-              // Silently fail - messages are already shown in UI
-            }
           }
+          setMessages((prev) => [...prev, aiMessage])
         }
       } else {
-        // New scraping request
-        const response = await scraperAPI.scrapeAndAnswer(userMessage.content, {
+        const result = await scrapeAndAnswer(messageContent, {
           scraperType,
           useProxy,
           blockResources,
           includeScreenshots,
-        });
-
-        if (response.success) {
-          // Add AI response to chat immediately
+        })
+        if (result) {
           const aiMessage: Message = {
             role: 'assistant',
-            content: response.response,
+            content: result.response,
             timestamp: new Date().toISOString(),
-            jobId: response.job?._id,
-          };
-          setMessages(prev => [...prev, aiMessage]);
-
-          // If a job was created, fetch fresh data and add to list
-          if (response.job && response.job._id) {
-            try {
-              // Fetch the updated job with chatHistory
-              const freshJobResponse = await scraperAPI.getJob(response.job._id);
-              if (freshJobResponse.success && freshJobResponse.job) {
-                addJob(freshJobResponse.job);
-                setCurrentJob(freshJobResponse.job);
-              } else {
-                addJob(response.job);
-                setCurrentJob(response.job);
-              }
-            } catch {
-              addJob(response.job);
-              setCurrentJob(response.job);
-            }
+            jobId: result.job?._id,
           }
+          setMessages((prev) => [...prev, aiMessage])
+          if (result.job) clearActions()
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage: Message = {
         role: 'system',
-        content: `Sorry, I encountered an error: ${error.response?.data?.error || error.message || 'Failed to process request'}`,
+        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Failed to process request'}`,
         timestamp: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsProcessing(false);
+      }
+      setMessages((prev) => [...prev, errorMessage])
     }
-  };
+  }
 
   const handleNewChat = () => {
-    setCurrentJob(null);
-    setMessages([]);
-  };
+    clearActions()
+    setCurrentJob(null)
+    setMessages([])
+  }
 
-  // Helper to load messages from job data
   const loadMessagesFromJob = (job: IScrapeJob) => {
-    const chatMessages: Message[] = [];
-
-    // Add chat history (which includes the initial question and AI response)
+    const chatMessages: Message[] = []
     if (job.chatHistory && job.chatHistory.length > 0) {
-      job.chatHistory.forEach((msg: any) => {
+      job.chatHistory.forEach((msg) => {
         chatMessages.push({
           role: msg.role,
           content: msg.content,
           timestamp: msg.timestamp || job.createdAt,
           jobId: job._id,
-        });
-      });
+        })
+      })
     } else if (job.taskDescription) {
-      // Fallback: if no chat history yet, show the task description as user message
       chatMessages.push({
         role: 'user',
         content: job.taskDescription,
         timestamp: job.createdAt,
         jobId: job._id,
-      });
+      })
     }
-
-    setMessages(chatMessages);
-  };
+    setMessages(chatMessages)
+  }
 
   const handleSelectJob = async (job: IScrapeJob) => {
-    setCurrentJob(job);
-    
-    // Fetch fresh job data to get latest chatHistory
-    if (!job._id) {
-      // Fallback to local data if no ID
-      loadMessagesFromJob(job);
-      return;
-    }
-    
-    try {
-      const response = await scraperAPI.getJob(job._id);
-      if (response.success && response.job) {
-        // Update the job in the store with fresh data
-        useScraperStore.getState().updateJob(job._id, response.job);
-        loadMessagesFromJob(response.job);
-      } else {
-        // Fallback to local data
-        loadMessagesFromJob(job);
-      }
-    } catch (error) {
-      console.error('Failed to fetch job:', error);
-      // Fallback to local data
-      loadMessagesFromJob(job);
-    }
-  };
-
-  const currentProgress = currentJob ? jobProgress.get(currentJob._id) : undefined;
+    if (currentJob && currentJob._id !== job._id) clearActions()
+    await setCurrentJob(job)
+    const updatedJob = useScraperStore.getState().currentJob || job
+    loadMessagesFromJob(updatedJob)
+  }
 
   return (
     <div className="h-screen flex flex-col bg-background">
       <Header jobCount={jobs.length} />
-
       <div className="flex-1 flex overflow-hidden">
         <ChatSidebar
           jobs={jobs}
@@ -267,21 +146,16 @@ export const ScraperPage: React.FC = () => {
           onSelectJob={handleSelectJob}
           onNewChat={handleNewChat}
         />
-
         <main className="flex-1 flex flex-col overflow-hidden bg-background">
           <ChatMessages
             messages={messages}
             isProcessing={isProcessing}
             messagesEndRef={messagesEndRef as React.RefObject<HTMLDivElement>}
+            actions={isProcessing ? jobActions : []}
           />
-
-          {currentProgress && (
-            <ProgressBar
-              message={currentProgress.message}
-              progress={currentProgress.progress}
-            />
+          {jobProgress && (
+            <ProgressBar message={jobProgress.message} progress={jobProgress.progress} />
           )}
-
           <ChatInput
             input={input}
             setInput={setInput}
@@ -301,5 +175,5 @@ export const ScraperPage: React.FC = () => {
         </main>
       </div>
     </div>
-  );
-};
+  )
+}

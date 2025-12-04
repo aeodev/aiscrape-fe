@@ -141,4 +141,21 @@ export interface IScrapeErrorEvent {
   status: ScrapeStatus;
 }
 
+export type ScrapeActionType = 
+  | 'OBSERVATION' 
+  | 'ACTION' 
+  | 'EXTRACTION' 
+  | 'ANALYSIS' 
+  | 'NAVIGATION' 
+  | 'CLICK' 
+  | 'WAIT';
+
+export interface IScrapeActionEvent {
+  jobId: string;
+  type: ScrapeActionType;
+  message: string;
+  details?: Record<string, any>;
+  timestamp: string;
+}
+
 
