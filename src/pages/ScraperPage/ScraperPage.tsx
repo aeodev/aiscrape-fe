@@ -57,11 +57,15 @@ export const ScraperPage: React.FC = () => {
     },
     onComplete: (event: any) => {
       // Refresh job data
-      scraperAPI.getJob(event.jobId).then((response) => {
-        if (response.success && response.job) {
-          useScraperStore.getState().updateJob(event.jobId, response.job);
-        }
-      });
+      if (event.jobId) {
+        scraperAPI.getJob(event.jobId).then((response) => {
+          if (response.success && response.job) {
+            useScraperStore.getState().updateJob(event.jobId, response.job);
+          }
+        }).catch((error) => {
+          console.error('Failed to fetch job on complete:', error);
+        });
+      }
     },
     onError: (event: any) => {
       setError(event.error);
@@ -130,13 +134,15 @@ export const ScraperPage: React.FC = () => {
           setMessages(prev => [...prev, aiMessage]);
 
           // Update job in store with new chat history
-          try {
-            const freshJobResponse = await scraperAPI.getJob(currentJob._id);
-            if (freshJobResponse.success && freshJobResponse.job) {
-              useScraperStore.getState().updateJob(currentJob._id, freshJobResponse.job);
+          if (currentJob._id) {
+            try {
+              const freshJobResponse = await scraperAPI.getJob(currentJob._id);
+              if (freshJobResponse.success && freshJobResponse.job) {
+                useScraperStore.getState().updateJob(currentJob._id, freshJobResponse.job);
+              }
+            } catch {
+              // Silently fail - messages are already shown in UI
             }
-          } catch {
-            // Silently fail - messages are already shown in UI
           }
         }
       } else {
@@ -159,7 +165,7 @@ export const ScraperPage: React.FC = () => {
           setMessages(prev => [...prev, aiMessage]);
 
           // If a job was created, fetch fresh data and add to list
-          if (response.job) {
+          if (response.job && response.job._id) {
             try {
               // Fetch the updated job with chatHistory
               const freshJobResponse = await scraperAPI.getJob(response.job._id);
@@ -225,6 +231,12 @@ export const ScraperPage: React.FC = () => {
     setCurrentJob(job);
     
     // Fetch fresh job data to get latest chatHistory
+    if (!job._id) {
+      // Fallback to local data if no ID
+      loadMessagesFromJob(job);
+      return;
+    }
+    
     try {
       const response = await scraperAPI.getJob(job._id);
       if (response.success && response.job) {

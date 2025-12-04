@@ -22,6 +22,9 @@ export const scraperAPI = {
    * Get a specific job
    */
   getJob: async (jobId: string): Promise<IScrapeJobResponse> => {
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      throw new Error('Invalid job ID');
+    }
     const response = await axiosInstance.get(`/api/scrape/${jobId}`);
     return response.data;
   },
@@ -43,6 +46,9 @@ export const scraperAPI = {
    * Delete a job
    */
   deleteJob: async (jobId: string): Promise<void> => {
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      throw new Error('Invalid job ID');
+    }
     await axiosInstance.delete(`/api/scrape/${jobId}`);
   },
 
@@ -50,6 +56,9 @@ export const scraperAPI = {
    * Cancel a job
    */
   cancelJob: async (jobId: string): Promise<IScrapeJobResponse> => {
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      throw new Error('Invalid job ID');
+    }
     const response = await axiosInstance.post(`/api/scrape/${jobId}/cancel`);
     return response.data;
   },
@@ -65,6 +74,9 @@ export const scraperAPI = {
    * Chat with a job
    */
   chatWithJob: async (jobId: string, message: string): Promise<{ success: boolean; response: string; history: any[] }> => {
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      throw new Error('Invalid job ID');
+    }
     const response = await axiosInstance.post(`/api/scrape/${jobId}/chat`, { message });
     return response.data;
   },
